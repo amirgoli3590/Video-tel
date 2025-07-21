@@ -1,107 +1,50 @@
+import telebot
 from telebot import types
 
-ADMIN_ID = 7536757725
-
 def admin_handler(bot, message, db, save_db):
-    chat_id = message.chat.id
-    bot.send_message(chat_id, "به پنل مدیریت خوش آمدید!\n"
-                              "از دستورات زیر استفاده کنید:\n"
-                              "/add_category نام_دسته\n"
-                              "/add_episode نام_دسته نام_قسمت file_id\n"
-                              "/list_categories\n"
-                              "/list_episodes نام_دسته\n"
-                              "/remove_category نام_دسته\n"
-                              "/remove_episode نام_دسته نام_قسمت")
+    uid = str(message.chat.id)
 
-@bot.message_handler(commands=['add_category'])
-def add_category(message):
-    if message.chat.id != ADMIN_ID:
-        return
-    try:
-        _, category_name = message.text.split(maxsplit=1)
+    @bot.message_handler(commands=['add_category'])
+    def add_category_cmd(msg):
+        if str(msg.chat.id) != uid:
+            return
+        bot.send_message(uid, "لطفا نام دسته‌بندی جدید را وارد کنید:")
+        bot.register_next_step_handler_by_chat_id(uid, add_category_step)
+
+    def add_category_step(msg):
+        category_name = msg.text
         if category_name in db['categories']:
-            bot.send_message(message.chat.id, f"دسته‌بندی '{category_name}' قبلاً وجود دارد.")
-            return
-        db['categories'][category_name] = {}
-        save_db(db)
-        bot.send_message(message.chat.id, f"دسته‌بندی '{category_name}' با موفقیت اضافه شد.")
-    except:
-        bot.send_message(message.chat.id, "فرمت دستور اشتباه است.\nمثال:\n/add_category سریال_جدید")
+            bot.send_message(uid, "این دسته‌بندی قبلا وجود دارد.")
+        else:
+            db['categories'][category_name] = {}
+            save_db(db)
+            bot.send_message(uid, f"دسته‌بندی {category_name} اضافه شد.")
+        bot.send_message(uid, "برای افزودن قسمت‌ها، دستور /add_series را ارسال کنید.")
 
-@bot.message_handler(commands=['add_episode'])
-def add_episode(message):
-    if message.chat.id != ADMIN_ID:
-        return
-    try:
-        parts = message.text.split(maxsplit=3)
-        if len(parts) < 4:
-            bot.send_message(message.chat.id, "فرمت دستور اشتباه است.\nمثال:\n/add_episode خاتون قسمت1 file_id")
+    @bot.message_handler(commands=['add_series'])
+    def add_series_cmd(msg):
+        if str(msg.chat.id) != uid:
             return
-        _, category_name, episode_name, file_id = parts
+        bot.send_message(uid, "نام دسته‌بندی که می‌خواهید قسمت به آن اضافه کنید را وارد کنید:")
+        bot.register_next_step_handler_by_chat_id(uid, add_series_category_step)
+
+    def add_series_category_step(msg):
+        category_name = msg.text
         if category_name not in db['categories']:
-            bot.send_message(message.chat.id, f"دسته‌بندی '{category_name}' وجود ندارد.")
+            bot.send_message(uid, "دسته‌بندی وجود ندارد.")
             return
-        db['categories'][category_name][episode_name] = file_id
+        bot.send_message(uid, "نام قسمت را وارد کنید:")
+        bot.register_next_step_handler_by_chat_id(uid, lambda m: add_series_step(m, category_name))
+
+    def add_series_step(msg, category_name):
+        series_name = msg.text
+        bot.send_message(uid, "file_id قسمت را وارد کنید:")
+        bot.register_next_step_handler_by_chat_id(uid, lambda m: add_series_file_id_step(m, category_name, series_name))
+
+    def add_series_file_id_step(msg, category_name, series_name):
+        file_id = msg.text
+        db['categories'][category_name][series_name] = file_id
         save_db(db)
-        bot.send_message(message.chat.id, f"قسمت '{episode_name}' به دسته‌بندی '{category_name}' اضافه شد.")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"خطا در افزودن قسمت: {e}")
+        bot.send_message(uid, f"قسمت {series_name} به دسته‌بندی {category_name} اضافه شد.")
 
-@bot.message_handler(commands=['list_categories'])
-def list_categories(message):
-    if message.chat.id != ADMIN_ID:
-        return
-    categories = list(db['categories'].keys())
-    if categories:
-        text = "دسته‌بندی‌ها:\n" + "\n".join(categories)
-    else:
-        text = "هیچ دسته‌بندی وجود ندارد."
-    bot.send_message(message.chat.id, text)
-
-@bot.message_handler(commands=['list_episodes'])
-def list_episodes(message):
-    if message.chat.id != ADMIN_ID:
-        return
-    try:
-        _, category_name = message.text.split(maxsplit=1)
-        episodes = db['categories'].get(category_name)
-        if not episodes:
-            bot.send_message(message.chat.id, f"دسته‌بندی '{category_name}' وجود ندارد یا خالی است.")
-            return
-        text = f"قسمت‌های دسته‌بندی '{category_name}':\n" + "\n".join(episodes.keys())
-        bot.send_message(message.chat.id, text)
-    except:
-        bot.send_message(message.chat.id, "فرمت دستور اشتباه است.\nمثال:\n/list_episodes خاتون")
-
-@bot.message_handler(commands=['remove_category'])
-def remove_category(message):
-    if message.chat.id != ADMIN_ID:
-        return
-    try:
-        _, category_name = message.text.split(maxsplit=1)
-        if category_name not in db['categories']:
-            bot.send_message(message.chat.id, f"دسته‌بندی '{category_name}' وجود ندارد.")
-            return
-        del db['categories'][category_name]
-        save_db(db)
-        bot.send_message(message.chat.id, f"دسته‌بندی '{category_name}' حذف شد.")
-    except:
-        bot.send_message(message.chat.id, "فرمت دستور اشتباه است.\nمثال:\n/remove_category خاتون")
-
-@bot.message_handler(commands=['remove_episode'])
-def remove_episode(message):
-    if message.chat.id != ADMIN_ID:
-        return
-    try:
-        _, category_name, episode_name = message.text.split(maxsplit=2)
-        if category_name not in db['categories']:
-            bot.send_message(message.chat.id, f"دسته‌بندی '{category_name}' وجود ندارد.")
-            return
-        if episode_name not in db['categories'][category_name]:
-            bot.send_message(message.chat.id, f"قسمت '{episode_name}' در دسته‌بندی '{category_name}' وجود ندارد.")
-            return
-        del db['categories'][category_name][episode_name]
-        save_db(db)
-        bot.send_message(message.chat.id, f"قسمت '{episode_name}' از دسته‌بندی '{category_name}' حذف شد.")
-    except:
-        bot.send_message(message.chat.id, "فرمت دستور اشتباه است.\nمثال:\n/remove_episode خاتون قسمت1")
+    bot.send_message(uid, "پنل مدیریت فعال شد. دستورات:\n/add_category - افزودن دسته‌بندی\n/add_series - افزودن قسمت")
