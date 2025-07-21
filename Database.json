@@ -1,4 +1,20 @@
 {
-  "users": {},
-  "categories": {}
+  "users": {
+    "7536757725": {
+      "username": "admin_username",
+      "subscription": "premium",
+      "subscription_expiry": "2099-12-31",
+      "notified": false
+    }
+  },
+  "categories": {
+    "خاتون": {
+      "قسمت 1": "file_id_of_video_part1",
+      "قسمت 2": "file_id_of_video_part2"
+    },
+    "آینه": {
+      "قسمت 1": "file_id_of_video_part1",
+      "قسمت 2": "file_id_of_video_part2"
+    }
+  }
 }
