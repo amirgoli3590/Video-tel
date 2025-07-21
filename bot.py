@@ -7,8 +7,8 @@ from telebot import types
 from admin_panel import admin_handler
 from zarinpal import create_payment_link, verify_payment
 
-TOKEN = 'توکن_ربات_تو_اینجا'
-CHANNEL_ID = '@نام_کانال_خصوصی_تو'
+TOKEN = '7621509071:AAGQQFbqxI5hvJBRoYEhGvicmT9P0dJSi_U'
+CHANNEL_ID = '@amiramir3590'
 ADMIN_ID = 7536757725
 DB_FILE = 'database.json'
 
@@ -27,81 +27,138 @@ def save_db(db):
 
 db = load_db()
 
+def has_access(user_id):
+    user = db['users'].get(str(user_id))
+    if not user:
+        return False
+    expire_str = user.get('expire_date')
+    if not expire_str:
+        return False
+    expire_date = datetime.datetime.strptime(expire_str, "%Y-%m-%d")
+    return datetime.datetime.now() <= expire_date
+
+def add_new_user(user_id, username):
+    start_date = datetime.datetime.now()
+    expire_date = start_date + datetime.timedelta(days=7)
+    db['users'][str(user_id)] = {
+        "username": username,
+        "start_date": start_date.strftime("%Y-%m-%d"),
+        "expire_date": expire_date.strftime("%Y-%m-%d"),
+        "notified": False
+    }
+    save_db(db)
+
+def delete_message_after(chat_id, message_id, seconds=30):
+    def task():
+        time.sleep(seconds)
+        try:
+            bot.delete_message(chat_id, message_id)
+        except:
+            pass
+    threading.Thread(target=task).start()
+
+def notify_expiring_users():
+    while True:
+        now = datetime.datetime.now()
+        for uid, user in db['users'].items():
+            expire_date = datetime.datetime.strptime(user['expire_date'], '%Y-%m-%d')
+            days_left = (expire_date - now).days
+            if days_left == 1 and not user.get('notified', False):
+                try:
+                    bot.send_message(uid, "⏳ اشتراک شما فردا منقضی می‌شود. لطفاً به موقع تمدید کنید.")
+                    db['users'][uid]['notified'] = True
+                    save_db(db)
+                except:
+                    pass
+        time.sleep(86400)
+
+threading.Thread(target=notify_expiring_users, daemon=True).start()
+
 @bot.message_handler(commands=['start'])
 def start(message):
     uid = str(message.chat.id)
     if uid == str(ADMIN_ID):
         admin_handler(bot, message, db, save_db)
         return
-
     if uid not in db['users']:
-        add_new_user(uid, message.from_user.username)
-        bot.send_message(uid, "🌹 خوش آمدی به ربات ما!")
+        add_new_user(uid, message.from_user.username or "")
+        bot.send_message(uid,
+            "سلام عزیزم 🌹\nخوش آمدی به ربات ما!\nشما 7 روز دسترسی رایگان داری.\nلطفا فیلم‌ها رو تا ۳۰ ثانیه بعد ذخیره کن.\nبرای دیدن دسته‌بندی‌ها دکمه '📂 دسته‌بندی‌ها' رو بزن.")
     else:
-        bot.send_message(uid, "👋 خوش آمدی دوباره!\nبرای دیدن دسته‌بندی‌ها دکمه 📁 دسته‌بندی‌ها را بزن.")
+        bot.send_message(uid,
+            "👋 خوش آمدی دوباره!\nبرای دیدن دسته‌بندی‌ها دکمه '📂 دسته‌بندی‌ها' رو بزن.")
 
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("🛒 خرید اشتراک", "📁 دسته‌بندی‌ها")
-    bot.send_message(uid, "لطفا یکی از گزینه‌ها را انتخاب کن:", reply_markup=markup)
-
-def add_new_user(uid, username):
-    db['users'][uid] = {
-        'username': username,
-        'subscription': False,
-        'payment_authority': '',
-        'notified': False
-    }
-    save_db(db)
+    markup.row("📂 دسته‌بندی‌ها", "🛒 خرید اشتراک")
+    bot.send_message(uid, "لطفا یکی از گزینه‌ها را انتخاب کنید:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == "🛒 خرید اشتراک")
 def buy_subscription(message):
     uid = str(message.chat.id)
     link = create_payment_link(uid)
-    db['users'][uid]['payment_authority'] = link.sp  # توجه کن اینجا باید اصلاح بشه طبق ساختار لینک
+    db['users'][uid]['payment_authority'] = link.split('/')[-1]  # ذخیره کد پرداخت برای بررسی بعدی
     save_db(db)
-    bot.send_message(uid, f"برای خرید اشتراک روی لینک زیر کلیک کن:\n{link.url}")
+    bot.send_message(uid,
+        f"برای خرید اشتراک ماهانه ۱۰ هزار تومان روی لینک زیر کلیک کنید:\n{link}\nبعد از پرداخت اشتراک شما فعال می‌شود.")
 
-@bot.message_handler(func=lambda m: m.text == "📁 دسته‌بندی‌ها")
+@bot.message_handler(func=lambda m: m.text == "📂 دسته‌بندی‌ها")
 def show_categories(message):
     uid = str(message.chat.id)
-    if not db['categories']:
-        bot.send_message(uid, "فعلا هیچ دسته‌بندی‌ای موجود نیست.")
+    if not has_access(uid):
+        bot.send_message(uid, "⛔ اشتراک شما منقضی شده است. لطفاً اشتراک خریداری کنید.")
         return
-
+    if not db['categories']:
+        bot.send_message(uid, "📂 هنوز دسته‌بندی‌ای ثبت نشده.")
+        return
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    for category in db['categories']:
-        markup.row(category)
-    markup.row("بازگشت")
+    for cat in db['categories']:
+        markup.row(cat)
+    markup.row("🔙 بازگشت")
     bot.send_message(uid, "دسته‌بندی‌ها:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text in db['categories'])
-def show_series(message):
+def show_episodes(message):
     uid = str(message.chat.id)
     category = message.text
-    series = db['categories'][category]
-
-    if not series:
-        bot.send_message(uid, "فعلا هیچ قسمتی در این دسته‌بندی نیست.")
+    episodes = db['categories'][category]
+    if not episodes:
+        bot.send_message(uid, "📂 این دسته‌بندی هنوز قسمت ندارد.")
         return
-
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    for serie in series:
-        markup.row(serie)
-    markup.row("بازگشت")
+    for ep in episodes:
+        markup.row(ep)
+    markup.row("🔙 بازگشت")
     bot.send_message(uid, f"قسمت‌های دسته‌بندی {category}:", reply_markup=markup)
 
-@bot.message_handler(func=lambda m: any(m.text in s for s in [serie for cat in db['categories'].values() for serie in cat]))
+@bot.message_handler(func=lambda m: any(m.text in eps for eps in db['categories'].values()))
 def send_video(message):
     uid = str(message.chat.id)
+    if not has_access(uid):
+        bot.send_message(uid, "⛔ اشتراک شما منقضی شده است.")
+        return
     video_name = message.text
+    file_id = None
+    for cat, eps in db['categories'].items():
+        if video_name in eps:
+            file_id = eps[video_name]
+            break
+    if not file_id:
+        bot.send_message(uid, "⚠️ فایل پیدا نشد.")
+        return
+    msg = bot.send_video(uid, file_id)
+    bot.send_message(uid, "🎥 فیلم تا ۳۰ ثانیه دیگر حذف می‌شود، لطفاً ذخیره کنید.")
+    delete_message_after(uid, msg.message_id, 30)
 
-    # جستجو در تمام دسته‌ها و قسمت‌ها برای پیدا کردن فایل ایدی
-    for category, series in db['categories'].items():
-        if video_name in series:
-            file_id = series[video_name]
-            bot.send_video(uid, file_id)
-            return
-    bot.send_message(uid, "قسمت پیدا نشد.")
+@bot.message_handler(func=lambda m: m.text == "🔙 بازگشت")
+def go_back(message):
+    start(message)
 
-if __name__ == '__main__':
-    bot.infinity_polling()
+@bot.message_handler(commands=['admin'])
+def admin(message):
+    if message.chat.id == ADMIN_ID:
+        admin_handler(bot, message, db, save_db)
+    else:
+        bot.send_message(message.chat.id, "⚠️ شما دسترسی به پنل مدیریت ندارید.")
+
+print("ربات شروع به کار کرد...")
+bot.infinity_polling()
